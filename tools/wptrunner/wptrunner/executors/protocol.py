@@ -4,7 +4,7 @@ import traceback
 from http.client import HTTPConnection
 
 from abc import ABCMeta, abstractmethod
-from typing import ClassVar, List, Type
+from typing import Any, Awaitable, Callable, ClassVar, List, Mapping, Optional, Type
 
 
 def merge_dicts(target, source):
@@ -18,6 +18,7 @@ def merge_dicts(target, source):
                 merge_dicts(target[key], source_value)
             else:
                 target[key] = source_value
+
 
 class Protocol:
     """Backend for a specific browser-control protocol.
@@ -318,6 +319,56 @@ class AccessibilityProtocolPart(ProtocolPart):
         """Return the computed accessibility role for a specific element.
 
         :param element: A protocol-specific handle to an element."""
+        pass
+
+
+class BidiEventsProtocolPart(ProtocolPart):
+    """Protocol part for managing BiDi events"""
+    __metaclass__ = ABCMeta
+    name = "bidi_events"
+
+    @abstractmethod
+    async def subscribe(self, events, contexts):
+        """Subscribe to events.
+
+        :param list events: The list of events names to subscribe to.
+        :param list|None contexts: The list of contexts ids to subscribe to. None for global subscription."""
+        pass
+
+    @abstractmethod
+    async def unsubscribe_all(self):
+        """Cleans up the subscription state. Removes all the previously added subscriptions."""
+        pass
+
+    @abstractmethod
+    def add_event_listener(
+            self,
+            fn: Callable[[str, Mapping[str, Any]], Awaitable[Any]],
+            event: Optional[str] = None
+    ) -> Callable[[], None]:
+        """Add an event listener. The callback will be called with the event name and the event data.
+
+        :param fn: The function to call when the event is received.
+        :param event: The name of the event to listen for. If None, the function will be called for all events.
+        :return: Function to remove the added listener."""
+        pass
+
+
+class BidiScriptProtocolPart(ProtocolPart):
+    """Protocol part for executing BiDi scripts"""
+    __metaclass__ = ABCMeta
+
+    name = "bidi_script"
+
+    @abstractmethod
+    async def call_function(self, function_declaration, target, arguments=None):
+        """
+        Executes the provided script in the given target in asynchronous mode.
+
+        :param str function_declaration: The js source of the function to execute.
+        :param script.Target target: The target in which to execute the script.
+        :param list[script.LocalValue] arguments: The arguments to pass to the script.
+        """
         pass
 
 

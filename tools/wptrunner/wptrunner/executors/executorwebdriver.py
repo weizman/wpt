@@ -1,5 +1,6 @@
 # mypy: allow-untyped-defs
 
+import asyncio
 import json
 import os
 import socket
@@ -9,7 +10,8 @@ import traceback
 import uuid
 from urllib.parse import urljoin
 
-from .base import (CallbackHandler,
+from .base import (AsyncCallbackHandler,
+                   CallbackHandler,
                    CrashtestExecutor,
                    RefTestExecutor,
                    RefTestImplementation,
@@ -35,6 +37,8 @@ from .protocol import (BaseProtocolPart,
                        RPHRegistrationsProtocolPart,
                        FedCMProtocolPart,
                        VirtualSensorProtocolPart,
+                       BidiEventsProtocolPart,
+                       BidiScriptProtocolPart,
                        DevicePostureProtocolPart,
                        merge_dicts)
 
@@ -45,6 +49,11 @@ here = os.path.dirname(__file__)
 
 
 class WebDriverCallbackHandler(CallbackHandler):
+    unimplemented_exc = (NotImplementedError, error.UnknownCommandException)
+    expected_exc = (error.WebDriverException,)
+
+
+class WebDriverAsyncCallbackHandler(AsyncCallbackHandler):
     unimplemented_exc = (NotImplementedError, error.UnknownCommandException)
     expected_exc = (error.WebDriverException,)
 
@@ -99,6 +108,49 @@ addEventListener("__test_restart", e => {e.preventDefault(); callback(true)})"""
                 self.logger.error(message)
                 break
         return False
+
+
+class WebDriverBidiEventsProtocolPart(BidiEventsProtocolPart):
+    _subscriptions = []
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.webdriver = None
+
+    def setup(self):
+        self.webdriver = self.parent.webdriver
+
+    async def subscribe(self, events, contexts):
+        self.logger.info("Subscribing to events %s in %s" % (events, contexts))
+        self._subscriptions.append((events, contexts))
+        return await self.webdriver.bidi_session.session.subscribe(events=events, contexts=contexts)
+
+    async def unsubscribe_all(self):
+        self.logger.info("Unsubscribing from all the events")
+        while self._subscriptions:
+            events, contexts = self._subscriptions.pop()
+            self.logger.info("Unsubscribing from events %s in %s" % (events, contexts))
+            await self.webdriver.bidi_session.session.unsubscribe(events=events, contexts=contexts)
+
+    def add_event_listener(self, fn, event=None):
+        self.logger.info("adding event listener %s" % event)
+        return self.webdriver.bidi_session.add_event_listener(name=event, fn=fn)
+
+
+class WebDriverBidiScriptProtocolPart(BidiScriptProtocolPart):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.webdriver = None
+
+    def setup(self):
+        self.webdriver = self.parent.webdriver
+
+    async def call_function(self, function_declaration, target, arguments=None):
+        return await self.webdriver.bidi_session.script.call_function(
+            function_declaration=function_declaration,
+            arguments=arguments,
+            target=target,
+            await_promise=True)
 
 
 class WebDriverTestharnessProtocolPart(TestharnessProtocolPart):
@@ -444,6 +496,7 @@ class WebDriverDevicePostureProtocolPart(DevicePostureProtocolPart):
         return self.webdriver.send_session_command("DELETE", "deviceposture")
 
 class WebDriverProtocol(Protocol):
+    enable_bidi = False
     implements = [WebDriverBaseProtocolPart,
                   WebDriverTestharnessProtocolPart,
                   WebDriverSelectorProtocolPart,
@@ -488,13 +541,13 @@ class WebDriverProtocol(Protocol):
         self.webdriver = None
 
     def connect(self):
-        """Connect to browser via WebDriver."""
+        """Connect to browser via WebDriver and crete a WebDriver session."""
         self.logger.debug("Connecting to WebDriver on URL: %s" % self.url)
 
         host, port = self.url.split(":")[1].strip("/"), self.url.split(':')[-1].strip("/")
 
         capabilities = {"alwaysMatch": self.capabilities}
-        self.webdriver = Session(host, port, capabilities=capabilities)
+        self.webdriver = Session(host, port, capabilities=capabilities, enable_bidi=self.enable_bidi)
         self.webdriver.start()
 
     def teardown(self):
@@ -523,6 +576,34 @@ class WebDriverProtocol(Protocol):
 
     def after_connect(self):
         self.testharness.load_runner(self.executor.last_environment["protocol"])
+
+
+class WebDriverBidiProtocol(WebDriverProtocol):
+    enable_bidi = True
+    implements = [WebDriverBidiEventsProtocolPart,
+                  WebDriverBidiScriptProtocolPart,
+                  *(part for part in WebDriverProtocol.implements)
+                  ]
+
+    def __init__(self, executor, browser, capabilities, **kwargs):
+        super().__init__(executor, browser, capabilities, **kwargs)
+        self.loop = asyncio.new_event_loop()
+
+    def connect(self):
+        super().connect()
+        self.loop.run_until_complete(self.webdriver.bidi_session.start(self.loop))
+
+    def teardown(self):
+        try:
+            self.loop.run_until_complete(self.webdriver.bidi_session.end())
+        except Exception as e:
+            message = str(getattr(e, "message", ""))
+            if message:
+                message += "\n"
+            message += traceback.format_exc()
+            self.logger.debug(message)
+        self.loop.stop()
+        super().teardown()
 
 
 class WebDriverRun(TimedRunner):
@@ -604,9 +685,16 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         return (test.make_result(*data), [])
 
     def do_testharness(self, protocol, url, timeout):
+        # TODO: respect timeout.
+
         # The previous test may not have closed its old windows (if something
         # went wrong or if cleanup_after_test was False), so clean up here.
         parent_window = protocol.testharness.close_old_windows()
+
+        # If protocol implements `bidi_events`, remove all the existing subscriptions.
+        if protocol.bidi_events:
+            # Use protocol loop to run the async cleanup.
+            protocol.loop.run_until_complete(protocol.bidi_events.unsubscribe_all())
 
         # Now start the test harness
         protocol.testharness.open_test_window(self.window_id)
@@ -618,19 +706,37 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         # Wait until about:blank has been loaded
         protocol.base.execute_script(self.window_loaded_script, asynchronous=True)
 
-        handler = WebDriverCallbackHandler(self.logger, protocol, test_window)
+        if protocol.bidi_events:
+            # If protocol implements `bidi_events`, forward all the events to test_driver.
+            async def process_bidi_event(method, params):
+                print("bidi event received", method, params)
+                protocol.testdriver.send_message(-1, "event", method, json.dumps({
+                    "params": params,
+                    "method": method}))
+
+            protocol.bidi_events.add_event_listener(process_bidi_event)
+
+        # If possible, support async actions.
+        if protocol.loop:
+            handler = WebDriverAsyncCallbackHandler(self.logger, protocol, test_window, protocol.loop)
+        else:
+            handler = WebDriverCallbackHandler(self.logger, protocol, test_window)
+
         protocol.webdriver.url = url
 
         while True:
-            result = protocol.base.execute_script(
-                self.script_resume, asynchronous=True, args=[strip_server(url)])
+            test_driver_message = self._get_next_message(protocol, url, test_window)
+            self.logger.debug("Receive message from testdriver: %s" % test_driver_message)
 
             # As of 2019-03-29, WebDriver does not define expected behavior for
             # cases where the browser crashes during script execution:
             #
             # https://github.com/w3c/webdriver/issues/1308
-            if not isinstance(result, list) or len(result) != 3:
-                is_alive = self.is_alive()
+            if not isinstance(test_driver_message, list) or len(test_driver_message) != 3:
+                try:
+                    is_alive = self.is_alive()
+                except error.WebDriverException:
+                    is_alive = False
                 if not is_alive:
                     raise Exception("Browser crashed during script execution.")
 
@@ -641,12 +747,17 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
             #
             # [1]: Step 5.3 of https://www.w3.org/TR/webdriver/#execute-async-script
             # [2]: https://www.w3.org/TR/webdriver/#dfn-execute-a-function-body
-            if result is None:
+            if test_driver_message is None:
                 continue
 
-            done, rv = handler(result)
+            done, rv = handler(test_driver_message)
             if done:
                 break
+
+        # If protocol implements `bidi_events`, remove all the existing subscriptions.
+        if protocol.bidi_events:
+            # Use protocol loop to run the async cleanup.
+            protocol.loop.run_until_complete(protocol.bidi_events.unsubscribe_all())
 
         # Attempt to cleanup any leftover windows, if allowed. This is
         # preferable as it will blame the correct test if something goes wrong
@@ -657,6 +768,83 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
 
         return rv
 
+    def bidi_deserialize(self, bidi_value):
+        """
+        Deserialize the BiDi value to the Python value, keeping non-common data typs (window) in BiDi format. The result
+        can have collisions with the classic values.
+        :param bidi_value: BiDi value to deserialize.
+        """
+        if isinstance(bidi_value, str):
+            return bidi_value
+        if isinstance(bidi_value, int):
+            return bidi_value
+        if not isinstance(bidi_value, dict):
+            raise ValueError("Unexpected bidi value: %s" % bidi_value)
+        if bidi_value["type"] == "null":
+            return None
+        if bidi_value["type"] == "boolean":
+            return bidi_value["value"]
+        if bidi_value["type"] == "number":
+            # TODO: extend with edge case values, like `Infinity`.
+            return bidi_value["value"]
+        if bidi_value["type"] == "string":
+            return bidi_value["value"]
+        if bidi_value["type"] == "array":
+            result = []
+            for item in bidi_value["value"]:
+                result.append(self.bidi_deserialize(item))
+            return result
+        if bidi_value["type"] == "object":
+            result = {}
+            for item in bidi_value["value"]:
+                result[self.bidi_deserialize(item[0])] = self.bidi_deserialize(item[1])
+            return result
+        if bidi_value["type"] == "window":
+            return bidi_value
+        # TODO: probably should return bidi value as-is, like `window` instead of raising exception. Keep for now to
+        #  check any regression in classic values.
+        raise ValueError("Unexpected bidi value: %s" % bidi_value)
+
+    def _get_next_message(self, protocol, url, test_window):
+        """
+        Get the next message from the test_driver. If the protocol supports bidi scripts, the messages are processed
+        asynchronously, otherwise the messages are processed synchronously.
+        """
+        if protocol.bidi_script:
+            # If `bidi_script` is available, use it as async call allows to process the events from the
+            # test_runner to test_driver while waiting for the next test_driver commands.
+
+            # As long as we want to be able to use scripts both in bidi and in classic mode, the script should
+            # be wrapped to some harness to emulate the WebDriver Classic async script execution. The script
+            # will be provided with the `resolve` delegate, which finishes the execution. After that the
+            # coroutine is finished as well.
+            wrapped_script = """async function(...args){
+                            return new Promise((resolve, reject) => {
+                                args.push(resolve);
+                                (async function(){
+                                    %s
+                                }).apply(null, args);
+                            })
+                        }""" % self.script_resume
+
+            bidi_url_argument = {
+                "type": "string",
+                "value": strip_server(url)
+            }
+
+            # `run_until_complete` allows processing BiDi events in the same loop while waiting for the next message.
+            message = protocol.loop.run_until_complete(protocol.bidi_script.call_function(
+                wrapped_script, target={
+                    "context": test_window
+                },
+                arguments=[bidi_url_argument]))
+            # The message is in WebDriver BiDi format. Deserialize it.
+            deserialized_message = self.bidi_deserialize(message)
+            return deserialized_message
+        else:
+            # If `bidi_script` is not available, use the classic WebDriver async script execution. This will
+            # block the event loop until the test_driver send a message.
+            return protocol.base.execute_script(self.script_resume, asynchronous=True, args=[strip_server(url)])
 
 class WebDriverRefTestExecutor(RefTestExecutor):
     protocol_cls = WebDriverProtocol
