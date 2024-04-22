@@ -42,6 +42,7 @@ from .protocol import (BaseProtocolPart,
                        DevicePostureProtocolPart,
                        merge_dicts)
 
+from typing import Callable, Dict
 from webdriver.client import Session
 from webdriver import error
 
@@ -132,9 +133,9 @@ class WebDriverBidiEventsProtocolPart(BidiEventsProtocolPart):
             self.logger.info("Unsubscribing from events %s in %s" % (events, contexts))
             await self.webdriver.bidi_session.session.unsubscribe(events=events, contexts=contexts)
 
-    def add_event_listener(self, fn, event=None):
-        self.logger.info("adding event listener %s" % event)
-        return self.webdriver.bidi_session.add_event_listener(name=event, fn=fn)
+    def add_event_listener(self, name, fn):
+        self.logger.info("adding event listener %s" % name)
+        return self.webdriver.bidi_session.add_event_listener(name=name, fn=fn)
 
 
 class WebDriverBidiScriptProtocolPart(BidiScriptProtocolPart):
@@ -495,6 +496,7 @@ class WebDriverDevicePostureProtocolPart(DevicePostureProtocolPart):
     def clear_device_posture(self):
         return self.webdriver.send_session_command("DELETE", "deviceposture")
 
+
 class WebDriverProtocol(Protocol):
     enable_bidi = False
     implements = [WebDriverBaseProtocolPart,
@@ -644,6 +646,7 @@ class WebDriverRun(TimedRunner):
 class WebDriverTestharnessExecutor(TestharnessExecutor):
     supports_testdriver = True
     protocol_cls = WebDriverProtocol
+    _get_next_message: Callable[[WebDriverProtocol, str, str], Dict]
 
     def __init__(self, logger, browser, server_config, timeout_multiplier=1,
                  close_after_done=True, capabilities=None, debug_info=None,
@@ -720,7 +723,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
                     "params": params,
                     "method": method}))
 
-            protocol.bidi_events.add_event_listener(process_bidi_event)
+            protocol.bidi_events.add_event_listener(None, process_bidi_event)
 
         # If possible, support async actions.
         if protocol.loop:
@@ -807,18 +810,19 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
             return result
         if bidi_value["type"] == "window":
             return bidi_value
-        # TODO: probably should return bidi value as-is, like `window` instead of raising exception. Keep for now to
-        #  check any regression in classic values.
+        # Raise an exception for unexpected types to detect any regression in the classic runner.
+        # TODO: replace with `return bidi_value` after the regression check.
         raise ValueError("Unexpected bidi value: %s" % bidi_value)
 
-    def _get_next_message_classic(self, protocol, url, _):
+    def _get_next_message_classic(self, protocol: WebDriverProtocol, url: str, test_window: str):
         """
         Get the next message from the test_driver using the classic WebDriver async script execution. This will block
         the event loop until the test_driver send a message.
+        :param window:
         """
         return protocol.base.execute_script(self.script_resume, asynchronous=True, args=[strip_server(url)])
 
-    def _get_next_message_bidi(self, protocol, url, test_window):
+    def _get_next_message_bidi(self, protocol: WebDriverProtocol, url: str, test_window: str):
         """
         Get the next message from the test_driver using async call. This will not block the event loop, which allows for
         processing the events from the test_runner to test_driver while waiting for the next test_driver commands.

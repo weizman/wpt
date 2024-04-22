@@ -1,6 +1,5 @@
 # mypy: allow-untyped-defs
 
-import asyncio
 import base64
 import hashlib
 import io
@@ -11,7 +10,7 @@ import traceback
 import socket
 import sys
 from abc import ABCMeta, abstractmethod
-from typing import Any, Callable, ClassVar, Tuple, Type
+from typing import Any, Callable, ClassVar, Dict, List, Literal, Tuple, Type
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from . import pytestrunner
@@ -733,14 +732,14 @@ class CallbackHandler:
         self.protocol = protocol
         self.test_window = test_window
         self.logger = logger
-        self.callbacks = {
+        self.callbacks: Dict[str, Callable[[str, Any], Tuple[bool, Any]]] = {
             "action": self.process_action,
             "complete": self.process_complete
         }
 
         self.actions = {cls.name: cls(self.logger, self.protocol) for cls in actions}
 
-    def __call__(self, result):
+    def __call__(self, result: Tuple[str, str, Dict]):
         url, command, payload = result
         self.logger.debug("Got async callback: %s" % result[1])
         try:
@@ -749,11 +748,11 @@ class CallbackHandler:
             raise ValueError("Unknown callback type %r" % result[1]) from e
         return callback(url, payload)
 
-    def process_complete(self, url, payload):
+    def process_complete(self, url: str, payload: List) -> Tuple[Literal[True], Any]:
         rv = [strip_server(url)] + payload
         return True, rv
 
-    def process_action(self, url, payload):
+    def process_action(self, url: str, payload: Dict) -> Tuple[Literal[False], None]:
         action = payload["action"]
         cmd_id = payload["id"]
         self.logger.debug(f"Got action: {action}")
@@ -791,7 +790,7 @@ class CallbackHandler:
 
         return False, None
 
-    def _send_message(self, cmd_id, message_type, status, message=None):
+    def _send_message(self, cmd_id: int, message_type: str, status: str, message: str = None):
         self.protocol.testdriver.send_message(cmd_id, message_type, status, message=message)
 
 
@@ -805,7 +804,7 @@ class AsyncCallbackHandler(CallbackHandler):
         self.loop = loop
         self.async_actions = {cls.name: cls(self.logger, self.protocol) for cls in async_actions}
 
-    def process_action(self, url, payload):
+    def process_action(self, url: str, payload: Dict[str, Any]) -> Tuple[Literal[False], None]:
         action = payload["action"]
         if action in self.async_actions:
             # Schedule async action to be processed in the event loop and return immediately.
@@ -817,7 +816,7 @@ class AsyncCallbackHandler(CallbackHandler):
             self.logger.debug(f"Processing synchronous action: {action}, {payload}")
             return super().process_action(url, payload)
 
-    async def _process_async_action(self, action, payload):
+    async def _process_async_action(self, action: str, payload: Dict[str, Any]):
         """
         Process async action and send the result back to the test driver.
 
