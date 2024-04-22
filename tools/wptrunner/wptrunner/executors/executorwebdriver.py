@@ -658,7 +658,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         with open(os.path.join(here, "window-loaded.js")) as f:
             self.window_loaded_script = f.read()
 
-        if self.protocol.bidi_script:
+        if hasattr(self.protocol, 'bidi_script'):
             # If `bidi_script` is available, the messages can be handled via BiDi.
             self._get_next_message = self._get_next_message_bidi
         else:
