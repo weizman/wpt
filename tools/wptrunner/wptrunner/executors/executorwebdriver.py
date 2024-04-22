@@ -658,6 +658,12 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         with open(os.path.join(here, "window-loaded.js")) as f:
             self.window_loaded_script = f.read()
 
+        if self.protocol.bidi_script:
+            # If `bidi_script` is available, the messages can be handled via BiDi.
+            self._get_next_message = self._get_next_message_bidi
+        else:
+            self._get_next_message = self._get_next_message_classic
+
         self.close_after_done = close_after_done
         self.window_id = str(uuid.uuid4())
         self.cleanup_after_test = cleanup_after_test
@@ -805,46 +811,46 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         #  check any regression in classic values.
         raise ValueError("Unexpected bidi value: %s" % bidi_value)
 
-    def _get_next_message(self, protocol, url, test_window):
+    def _get_next_message_classic(self, protocol, url, _):
         """
-        Get the next message from the test_driver. If the protocol supports bidi scripts, the messages are processed
-        asynchronously, otherwise the messages are processed synchronously.
+        Get the next message from the test_driver using the classic WebDriver async script execution. This will block
+        the event loop until the test_driver send a message.
         """
-        if protocol.bidi_script:
-            # If `bidi_script` is available, use it as async call allows to process the events from the
-            # test_runner to test_driver while waiting for the next test_driver commands.
+        return protocol.base.execute_script(self.script_resume, asynchronous=True, args=[strip_server(url)])
 
-            # As long as we want to be able to use scripts both in bidi and in classic mode, the script should
-            # be wrapped to some harness to emulate the WebDriver Classic async script execution. The script
-            # will be provided with the `resolve` delegate, which finishes the execution. After that the
-            # coroutine is finished as well.
-            wrapped_script = """async function(...args){
-                            return new Promise((resolve, reject) => {
-                                args.push(resolve);
-                                (async function(){
-                                    %s
-                                }).apply(null, args);
-                            })
-                        }""" % self.script_resume
+    def _get_next_message_bidi(self, protocol, url, test_window):
+        """
+        Get the next message from the test_driver using async call. This will not block the event loop, which allows for
+        processing the events from the test_runner to test_driver while waiting for the next test_driver commands.
+        """
+        # As long as we want to be able to use scripts both in bidi and in classic mode, the script should
+        # be wrapped to some harness to emulate the WebDriver Classic async script execution. The script
+        # will be provided with the `resolve` delegate, which finishes the execution. After that the
+        # coroutine is finished as well.
+        wrapped_script = """async function(...args){
+                        return new Promise((resolve, reject) => {
+                            args.push(resolve);
+                            (async function(){
+                                %s
+                            }).apply(null, args);
+                        })
+                    }""" % self.script_resume
 
-            bidi_url_argument = {
-                "type": "string",
-                "value": strip_server(url)
-            }
+        bidi_url_argument = {
+            "type": "string",
+            "value": strip_server(url)
+        }
 
-            # `run_until_complete` allows processing BiDi events in the same loop while waiting for the next message.
-            message = protocol.loop.run_until_complete(protocol.bidi_script.call_function(
-                wrapped_script, target={
-                    "context": test_window
-                },
-                arguments=[bidi_url_argument]))
-            # The message is in WebDriver BiDi format. Deserialize it.
-            deserialized_message = self.bidi_deserialize(message)
-            return deserialized_message
-        else:
-            # If `bidi_script` is not available, use the classic WebDriver async script execution. This will
-            # block the event loop until the test_driver send a message.
-            return protocol.base.execute_script(self.script_resume, asynchronous=True, args=[strip_server(url)])
+        # `run_until_complete` allows processing BiDi events in the same loop while waiting for the next message.
+        message = protocol.loop.run_until_complete(protocol.bidi_script.call_function(
+            wrapped_script, target={
+                "context": test_window
+            },
+            arguments=[bidi_url_argument]))
+        # The message is in WebDriver BiDi format. Deserialize it.
+        deserialized_message = self.bidi_deserialize(message)
+        return deserialized_message
+
 
 class WebDriverRefTestExecutor(RefTestExecutor):
     protocol_cls = WebDriverProtocol
