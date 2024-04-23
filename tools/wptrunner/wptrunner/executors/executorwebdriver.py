@@ -46,6 +46,7 @@ from typing import Callable, Dict, List, Optional
 from webdriver.client import Session
 from webdriver import error as webdriver_error
 from webdriver.bidi import error as webdriver_bidi_error
+from webdriver.bidi.modules.script import bidi_deserialize
 
 here = os.path.dirname(__file__)
 
@@ -823,43 +824,6 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
 
         return rv
 
-    def bidi_deserialize(self, bidi_value):
-        """
-        Deserialize the BiDi primitive values, lists and objects to the Python value, keeping non-common data typs
-        (window) in BiDi format. The result can have collisions with the classic values.
-        :param bidi_value: BiDi value to deserialize.
-        """
-        if isinstance(bidi_value, str):
-            return bidi_value
-        if isinstance(bidi_value, int):
-            return bidi_value
-        if not isinstance(bidi_value, dict):
-            raise ValueError("Unexpected bidi value: %s" % bidi_value)
-        if bidi_value["type"] == "null":
-            return None
-        if bidi_value["type"] == "boolean":
-            return bidi_value["value"]
-        if bidi_value["type"] == "number":
-            # TODO: extend with edge case values, like `Infinity`.
-            return bidi_value["value"]
-        if bidi_value["type"] == "string":
-            return bidi_value["value"]
-        if bidi_value["type"] == "array":
-            result = []
-            for item in bidi_value["value"]:
-                result.append(self.bidi_deserialize(item))
-            return result
-        if bidi_value["type"] == "object":
-            result = {}
-            for item in bidi_value["value"]:
-                result[self.bidi_deserialize(item[0])] = self.bidi_deserialize(item[1])
-            return result
-        if bidi_value["type"] == "window":
-            return bidi_value
-        # Raise an exception for unexpected types to detect any regression in the classic runner.
-        # TODO: replace with `return bidi_value` after the regression check.
-        raise ValueError("Unexpected bidi value: %s" % bidi_value)
-
     def _get_next_message_classic(self, protocol: WebDriverProtocol, url: str, _: str):
         """
         Get the next message from the test_driver using the classic WebDriver async script execution. This will block
@@ -898,7 +862,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
             },
             arguments=[bidi_url_argument]))
         # The message is in WebDriver BiDi format. Deserialize it.
-        deserialized_message = self.bidi_deserialize(message)
+        deserialized_message = bidi_deserialize(message)
         return deserialized_message
 
 

@@ -1,3 +1,4 @@
+import math
 from enum import Enum
 from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Union
 
@@ -229,3 +230,56 @@ class Script(BidiModule):
         }
 
         return params
+
+
+def bidi_deserialize(bidi_value: Union[str, int, Dict]):
+    """
+    Deserialize the BiDi primitive values, lists and objects to the Python value, keeping non-common data types
+    in BiDi format.
+    Note: there can be some uncertainty in the deserialized value. Eg `{window: {context: "abc"}}` can represent a
+    window proxy, or the JS object `{window: {context: "abc"}}`.
+    """
+    # script.PrimitiveProtocolValue https://w3c.github.io/webdriver-bidi/#type-script-PrimitiveProtocolValue
+    if isinstance(bidi_value, str):
+        return bidi_value
+    if isinstance(bidi_value, int):
+        return bidi_value
+    if not isinstance(bidi_value, dict):
+        raise ValueError("Unexpected bidi value: %s" % bidi_value)
+    if bidi_value["type"] == "undefined":
+        return UNDEFINED
+    if bidi_value["type"] == "null":
+        return None
+    if bidi_value["type"] == "string":
+        return bidi_value["value"]
+    if bidi_value["type"] == "number":
+        if bidi_value["value"] == "NaN":
+            return math.nan
+        if bidi_value["value"] == "-0":
+            return -0.0
+        if bidi_value["value"] == "Infinity":
+            return math.inf
+        if bidi_value["value"] == "-Infinity":
+            return -math.inf
+        if isinstance(bidi_value["value"], int) or isinstance(bidi_value["value"], float):
+            return bidi_value["value"]
+        raise ValueError("Unexpected bidi value: %s" % bidi_value)
+    if bidi_value["type"] == "boolean":
+        return bool(bidi_value["value"])
+    if bidi_value["type"] == "bigint":
+        # Python handles big integers natively.
+        return number(bidi_value["value"])
+    # script.RemoteValue https://w3c.github.io/webdriver-bidi/#type-script-RemoteValue
+    if bidi_value["type"] == "array":
+        result = []
+        for item in bidi_value["value"]:
+            result.append(bidi_deserialize(item))
+        return result
+    if bidi_value["type"] == "object":
+        result = {}
+        for item in bidi_value["value"]:
+            result[bidi_deserialize(item[0])] = bidi_deserialize(item[1])
+        return result
+    # All other types are not deserialized and returned as-is.
+    # TODO: deserialize `date`, `regexp`, `map` and `set` types if needed.
+    return bidi_value
