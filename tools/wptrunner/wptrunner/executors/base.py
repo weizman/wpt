@@ -821,7 +821,8 @@ class AsyncCallbackHandler(CallbackHandler):
         Process async action and send the result back to the test driver.
 
         This method is analogous to `process_action` but is intended to be used with async actions in a task, so it does
-        not raise unexpected exceptions.
+        not raise unexpected exceptions. However, the unexpected exceptions are logged and the error message is sent
+        back to the test driver.
         """
         async_action_handler = self.async_actions[action]
         cmd_id = payload["id"]
@@ -838,13 +839,12 @@ class AsyncCallbackHandler(CallbackHandler):
         except self.unimplemented_exc:
             self.logger.warning("Action %s not implemented" % action)
             self._send_message(cmd_id, "complete", "error", f"Action {action} not implemented")
-        except self.expected_exc:
-            self.logger.debug(f"Action {action} failed with an expected exception")
-            self._send_message(cmd_id, "complete", "error", f"Action {action} failed")
-        except Exception:
-            self.logger.warning(f"Action {action} failed")
-            self._send_message(cmd_id, "complete", "error")
-            raise
+        except self.expected_exc as e:
+            self.logger.debug(f"Action {action} failed with an expected exception: {e}")
+            self._send_message(cmd_id, "complete", "error", f"Action {action} failed: {e}")
+        except Exception as e:
+            self.logger.warning(f"Action {action} failed with an unexpected exception: {e}")
+            self._send_message(cmd_id, "complete", "error", f"Unexpected exception: {e}")
         else:
             self.logger.debug(f"Action {action} completed with result {result}")
             return_message = {"result": result}

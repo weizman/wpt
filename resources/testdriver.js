@@ -44,6 +44,7 @@
         return pointerInteractablePaintTree.indexOf(element) !== -1;
     }
 
+
     /**
      * @namespace {test_driver}
      */
