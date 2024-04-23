@@ -46,7 +46,7 @@ from typing import Callable, Dict, List, Optional
 from webdriver.client import Session
 from webdriver import error as webdriver_error
 from webdriver.bidi import error as webdriver_bidi_error
-from webdriver.bidi.modules.script import bidi_deserialize
+from webdriver.bidi.protocol import bidi_deserialize
 
 here = os.path.dirname(__file__)
 

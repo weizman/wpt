@@ -1,27 +1,16 @@
-from typing import List, Literal, Optional, TypedDict, Union
-
-
-class WindowProxyProperties(TypedDict):
-    context: str
-
-
-class WindowProxyRemoteValue(TypedDict):
-    """
-    WebDriver BiDi browsing context descriptor.
-    """
-    type: Literal["window"]
-    value: WindowProxyProperties
+from typing import List, Optional, TypedDict, Union
+from webdriver.bidi.protocol import BidiWindow
 
 
 class BrowsingContextArgument(str):
     """Represent a browsing context argument passed from testdriver. It can be either a browsing context id, or a BiDi
     serialized window. In the latter case, the value is extracted from the serialized object."""
 
-    def __new__(cls, context: Union[str, WindowProxyRemoteValue]):
+    def __new__(cls, context: Union[str, BidiWindow]):
         if isinstance(context, str):
             _context_id = context
-        elif isinstance(context, dict) and "type" in context and context["type"] == "window":
-            _context_id = context["value"]["context"]
+        elif isinstance(context, BidiWindow):
+            _context_id = context.browsing_context()
         else:
             raise ValueError("Unexpected context type: %s" % context)
         return super(BrowsingContextArgument, cls).__new__(cls, _context_id)
