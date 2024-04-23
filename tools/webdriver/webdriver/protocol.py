@@ -26,6 +26,34 @@ class Encoder(json.JSONEncoder):
             return {webdriver.WebWindow.identifier: obj.id}
         return super().default(obj)
 
+    def _wrap_bidi_values(self, obj):
+        """
+        For backward compatibility, we need to encode WebDriver BiDi values in WebDriver Classic format. In order to do
+        that, we need to check if any of the dict to be encoded is a WebDriver BiDi object and encode it accordingly.
+        """
+        if isinstance(obj, dict):
+            if 'type' in obj and obj['type'] == 'node' and "sharedId" in obj:
+                # Backwards compatibility for WebDriver BiDi serialization.
+                return {webdriver.WebElement.identifier: obj["sharedId"]}
+            else:
+                # Recursively encode nested dictionaries.
+                return {key: self._wrap_bidi_values(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            # Recursively encode elements in the list
+            return [self._wrap_bidi_values(item) for item in obj]
+        elif isinstance(obj, tuple):
+            # Recursively encode elements in the tuple
+            return tuple(self._wrap_bidi_values(item) for item in obj)
+        elif isinstance(obj, set):
+            # Recursively encode elements in the set
+            return {self._wrap_bidi_values(item) for item in obj}
+        else:
+            # Return other types as is
+            return obj
+
+    def encode(self, obj):
+        return super().encode(self._wrap_bidi_values(obj))
+
 
 class Decoder(json.JSONDecoder):
     def __init__(self, *args, **kwargs):
