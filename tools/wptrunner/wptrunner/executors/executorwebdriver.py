@@ -748,7 +748,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         parent_window = protocol.testharness.close_old_windows()
 
         # If protocol implements `bidi_events`, remove all the existing subscriptions.
-        if hasattr(self.protocol, 'bidi_events'):
+        if hasattr(protocol, 'bidi_events'):
             # Use protocol loop to run the async cleanup.
             protocol.loop.run_until_complete(protocol.bidi_events.unsubscribe_all())
 
@@ -762,7 +762,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         # Wait until about:blank has been loaded
         protocol.base.execute_script(self.window_loaded_script, asynchronous=True)
 
-        if hasattr(self.protocol, 'bidi_events'):
+        if hasattr(protocol, 'bidi_events'):
             # If protocol implements `bidi_events`, forward all the events to test_driver.
             async def process_bidi_event(method, params):
                 print("bidi event received", method, params)
@@ -773,7 +773,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
             protocol.bidi_events.add_event_listener(None, process_bidi_event)
 
         # If possible, support async actions.
-        if protocol.loop:
+        if hasattr(protocol, 'loop'):
             handler = WebDriverAsyncCallbackHandler(self.logger, protocol, test_window, protocol.loop)
         else:
             handler = WebDriverCallbackHandler(self.logger, protocol, test_window)
@@ -811,7 +811,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
                 break
 
         # If protocol implements `bidi_events`, remove all the existing subscriptions.
-        if hasattr(self.protocol, 'bidi_events'):
+        if hasattr(protocol, 'bidi_events'):
             # Use protocol loop to run the async cleanup.
             protocol.loop.run_until_complete(protocol.bidi_events.unsubscribe_all())
 

@@ -280,6 +280,10 @@ def bidi_deserialize(bidi_value: Union[str, int, Dict]):
         for item in bidi_value["value"]:
             result[bidi_deserialize(item[0])] = bidi_deserialize(item[1])
         return result
-    # All other types are not deserialized and returned as-is.
-    # TODO: deserialize `date`, `regexp`, `map` and `set` types if needed.
-    return bidi_value
+    if bidi_value["type"] == "window":
+        return bidi_value
+    # TODO: do not raise after verified no regressions in the tests.
+    raise ValueError("Unexpected bidi value: %s" % bidi_value)
+    # # All other types are not deserialized and returned as-is.
+    # # TODO: deserialize `date`, `regexp`, `map` and `set` types if needed.
+    # return bidi_value
