@@ -13,22 +13,18 @@ class WindowProxyRemoteValue(TypedDict):
     value: WindowProxyProperties
 
 
-BrowsingContextArgument = Union[str, WindowProxyRemoteValue]
+class BrowsingContextArgument(str):
+    """Represent a browsing context argument passed from testdriver. It can be either a browsing context id, or a BiDi
+    serialized window. In the latter case, the value is extracted from the serialized object."""
 
-
-def get_browsing_context_id(context: BrowsingContextArgument) -> str:
-    """
-    Extracts browsing context id from the argument. The argument can be either a string or a BiDi serialized window
-    proxy.
-    :param context: Browsing context argument.
-    :return: Browsing context id.
-    """
-    if isinstance(context, str):
-        return context
-    elif isinstance(context, dict) and "type" in context and context["type"] == "window":
-        return context["value"]["context"]
-    else:
-        raise ValueError("Unexpected context type: %s" % context)
+    def __new__(cls, context: Union[str, WindowProxyRemoteValue]):
+        if isinstance(context, str):
+            _context_id = context
+        elif isinstance(context, dict) and "type" in context and context["type"] == "window":
+            _context_id = context["value"]["context"]
+        else:
+            raise ValueError("Unexpected context type: %s" % context)
+        return super(BrowsingContextArgument, cls).__new__(cls, _context_id)
 
 
 class BidiSessionSubscribeAction:
@@ -53,8 +49,8 @@ class BidiSessionSubscribeAction:
         contexts = None
         if payload["contexts"] is not None:
             contexts = []
-            for context_argument in payload["contexts"]:
-                contexts.append(get_browsing_context_id(context_argument))
+            for browsing_context_argument in payload["contexts"]:
+                contexts.append(BrowsingContextArgument(browsing_context_argument))
         return await self.protocol.bidi_events.subscribe(events, contexts)
 
 
