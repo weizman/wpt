@@ -5,7 +5,7 @@ from http.client import HTTPConnection
 
 from abc import ABCMeta, abstractmethod
 from typing import Any, Awaitable, Callable, ClassVar, List, Mapping, Optional, Type
-from tools.webdriver.webdriver.bidi.modules.script import Target
+from webdriver.bidi.modules.script import Target
 
 
 def merge_dicts(target, source):
@@ -346,9 +346,9 @@ class BidiEventsProtocolPart(ProtocolPart):
 
     @abstractmethod
     def add_event_listener(
-          self,
-          name: Optional[str],
-          fn: Callable[[str, Mapping[str, Any]], Awaitable[Any]]
+            self,
+            name: Optional[str],
+            fn: Callable[[str, Mapping[str, Any]], Awaitable[Any]]
     ) -> Callable[[], None]:
         """Add an event listener. The callback will be called with the event name and the event data.
 
