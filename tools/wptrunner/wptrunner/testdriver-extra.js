@@ -178,7 +178,7 @@
     const create_context_action = function (name, context, props) {
         const context_props = {...props};
         if (context) {
-            context_props.context = get_window_id(context_props.context);
+            context_props.context = get_window_id(context);
         }
         if (context === null && !is_test_context()) {
             context_props.context = get_window_id(window);
