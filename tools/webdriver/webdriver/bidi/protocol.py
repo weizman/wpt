@@ -1,39 +1,47 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 import math
 from typing import Any, Dict, Union
 from .undefined import UNDEFINED
 from ..client import WebElement
 
 
-class ClassicSerializable(ABC):
-    """Interface for the objects that can be serialized to the WebDriver classic protocol."""
+class BidiValue(ABC):
+    """Represents the non-primitive values received via BiDi."""
+    protocol_value: Dict[str, Any]
+    type: str
 
-    @abstractmethod
+    def __init__(self, protocol_value):
+        assert isinstance(protocol_value, dict)
+        assert isinstance(protocol_value["type"], str)
+        self.type = protocol_value["type"]
+        self.protocol_value = protocol_value
+
     def to_classic_protocol_value(self) -> Dict:
-        """Return the object representing reference in WebDriver classic format."""
-        pass
+        """Convert the BiDi value to the classic protocol value. Required for compatibility of the values sent over BiDi
+        transport with the classic actions."""
+        raise NotImplementedError("No conversion to the classic protocol value is implemented.")
 
 
-class BidiNode(ClassicSerializable):
-    bidi_value: Dict[str, Any]
+class BidiNode(BidiValue):
     shared_id: str
 
-    def __init__(self, bidi_value: Dict[str, Any]):
-        assert bidi_value["type"] == "node"
-        self.bidi_value = bidi_value
-        self.shared_id = bidi_value["sharedId"]
+    def __init__(self, protocol_value: Dict[str, Any]):
+        super().__init__(protocol_value)
+        assert self.type == "node"
+        self.shared_id = self.protocol_value["sharedId"]
 
     def to_classic_protocol_value(self) -> Dict:
         return {WebElement.identifier: self.shared_id}
 
 
-class BidiWindow:
-    def __init__(self, bidi_value: Dict[str, Any]):
-        assert bidi_value["type"] == "window"
-        self.bidi_value = bidi_value
+class BidiWindow(BidiValue):
+    browsing_context: str
 
-    def browsing_context(self) -> str:
-        return self.bidi_value["value"]["context"]
+    def __init__(self, protocol_value: Dict[str, Any]):
+        super().__init__(protocol_value)
+        assert self.type == "window"
+        self.browsing_context = self.protocol_value["value"]["context"]
+
 
 def bidi_deserialize(bidi_value: Union[str, int, Dict]):
     """
@@ -89,6 +97,5 @@ def bidi_deserialize(bidi_value: Union[str, int, Dict]):
         return BidiWindow(bidi_value)
     # TODO: do not raise after verified no regressions in the tests.
     raise ValueError("Unexpected bidi value: %s" % bidi_value)
-    # # All other types are not deserialized and returned as-is.
-    # # TODO: deserialize `date`, `regexp`, `map` and `set` types if needed.
-    # return bidi_value
+    # All other types are not deserialized as a generic BidiValue.
+    # return BidiValue(bidi_value)

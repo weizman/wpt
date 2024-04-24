@@ -25,7 +25,7 @@ class Encoder(json.JSONEncoder):
             return {webdriver.WebWindow.identifier: obj.id}
         # Support for arguments received via BiDi.
         # https://github.com/web-platform-tests/rfcs/blob/master/rfcs/testdriver_bidi.md
-        elif isinstance(obj, webdriver.bidi.protocol.ClassicSerializable):
+        elif isinstance(obj, webdriver.bidi.protocol.BidiValue):
             return obj.to_classic_protocol_value()
 
         return super().default(obj)

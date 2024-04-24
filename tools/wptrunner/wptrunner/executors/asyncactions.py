@@ -10,7 +10,7 @@ class BrowsingContextArgument(str):
         if isinstance(context, str):
             _context_id = context
         elif isinstance(context, BidiWindow):
-            _context_id = context.browsing_context()
+            _context_id = context.browsing_context
         else:
             raise ValueError("Unexpected context type: %s" % context)
         return super(BrowsingContextArgument, cls).__new__(cls, _context_id)
