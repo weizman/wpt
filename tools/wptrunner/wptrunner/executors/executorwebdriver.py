@@ -37,6 +37,7 @@ from .protocol import (BaseProtocolPart,
                        RPHRegistrationsProtocolPart,
                        FedCMProtocolPart,
                        VirtualSensorProtocolPart,
+                       BidiBrowsingContextProtocolPart,
                        BidiEventsProtocolPart,
                        BidiScriptProtocolPart,
                        DevicePostureProtocolPart,
@@ -111,6 +112,22 @@ addEventListener("__test_restart", e => {e.preventDefault(); callback(true)})"""
                 self.logger.error(message)
                 break
         return False
+
+
+class WebDriverBidiBrowsingContextProtocolPart(BidiBrowsingContextProtocolPart):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.webdriver = None
+
+    def setup(self):
+        self.webdriver = self.parent.webdriver
+
+    async def handle_user_prompt(self,
+                                 context: str,
+                                 accept: Optional[bool] = None,
+                                 user_text: Optional[str] = None):
+        await self.webdriver.bidi_session.browsing_context.handle_user_prompt(
+            context=context, accept=accept, user_text=user_text)
 
 
 class WebDriverBidiEventsProtocolPart(BidiEventsProtocolPart):
@@ -629,7 +646,8 @@ class WebDriverProtocol(Protocol):
 
 class WebDriverBidiProtocol(WebDriverProtocol):
     enable_bidi = True
-    implements = [WebDriverBidiEventsProtocolPart,
+    implements = [WebDriverBidiBrowsingContextProtocolPart,
+                  WebDriverBidiEventsProtocolPart,
                   WebDriverBidiScriptProtocolPart,
                   *(part for part in WebDriverProtocol.implements)
                   ]
@@ -762,15 +780,30 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         # Wait until about:blank has been loaded
         protocol.base.execute_script(self.window_loaded_script, asynchronous=True)
 
+        # Exceptions occurred outside the main loop.
+        unexpected_exceptions = []
+
         if hasattr(protocol, 'bidi_events'):
             # If protocol implements `bidi_events`, forward all the events to test_driver.
             async def process_bidi_event(method, params):
-                print("bidi event received", method, params)
-                protocol.testdriver.send_message(-1, "event", method, json.dumps({
-                    "params": params,
-                    "method": method}))
+                self.logger.debug(f"Received bidi event: {method}, {params}")
+                if hasattr(protocol, 'bidi_browsing_context') and method == "browsingContext.userPromptOpened":
+                    # User prompts are handled separately. In classic implementation, the user prompt always causes an
+                    # exception when `_get_next_message` is called. In BiDi it's not a case, as the BiDi protocol allows
+                    # sending commands even with the user prompt opened. However, the user prompt can block the
+                    # testdriver JS execution and cause the dead loop. To overcome this issue, the user prompt is always
+                    # dismissed.
+                    # TODO: find out a way of handling the user prompts by testdriver.
+                    self.logger.error("Unexpected user prompt opened: %s" % params)
+                    unexpected_exceptions.append(Exception("Unexpected user prompt opened: %s" % params))
+                    await protocol.bidi_browsing_context.handle_user_prompt(params["context"])
+                else:
+                    protocol.testdriver.send_message(-1, "event", method, json.dumps({
+                        "params": params,
+                        "method": method}), test_window=test_window)
 
             protocol.bidi_events.add_event_listener(None, process_bidi_event)
+            protocol.loop.run_until_complete(protocol.bidi_events.subscribe(['browsingContext.userPromptOpened'], None))
 
         # If possible, support async actions.
         if hasattr(protocol, 'loop'):
@@ -781,6 +814,10 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         protocol.webdriver.url = url
 
         while True:
+            if len(unexpected_exceptions) > 0:
+                # TODO: what to do if there are more then 1 unexpected exceptions?
+                raise unexpected_exceptions[0]
+
             test_driver_message = self._get_next_message(protocol, url, test_window)
             self.logger.debug("Receive message from testdriver: %s" % test_driver_message)
 
@@ -796,10 +833,9 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
                 if not is_alive:
                     raise Exception("Browser crashed during script execution.")
 
-            # A user prompt created after starting execution of the resume
-            # script will resolve the script with `null` [1, 2]. In that case,
-            # cycle this event loop and handle the prompt the next time the
-            # resume script executes.
+            # In case of WebDriver Classic, a user prompt created after starting execution of the resume script will
+            # resolve the script with `null` [1, 2]. In that case, cycle this event loop and handle the prompt the next
+            # time the resume script executes.
             #
             # [1]: Step 5.3 of https://www.w3.org/TR/webdriver/#execute-async-script
             # [2]: https://www.w3.org/TR/webdriver/#dfn-execute-a-function-body
@@ -815,12 +851,16 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
             # Use protocol loop to run the async cleanup.
             protocol.loop.run_until_complete(protocol.bidi_events.unsubscribe_all())
 
-        # Attempt to cleanup any leftover windows, if allowed. This is
+        # Attempt to clean up any leftover windows, if allowed. This is
         # preferable as it will blame the correct test if something goes wrong
         # closing windows, but if the user wants to see the test results we
         # have to leave the window(s) open.
         if self.cleanup_after_test:
             protocol.testharness.close_old_windows()
+
+        if len(unexpected_exceptions) > 0:
+            # TODO: what to do if there are more then 1 unexpected exceptions?
+            raise unexpected_exceptions[0]
 
         return rv
 

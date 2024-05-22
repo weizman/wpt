@@ -322,6 +322,25 @@ class AccessibilityProtocolPart(ProtocolPart):
         pass
 
 
+class BidiBrowsingContextProtocolPart(ProtocolPart):
+    """Protocol part for managing BiDi events"""
+    __metaclass__ = ABCMeta
+    name = "bidi_browsing_context"
+
+    @abstractmethod
+    async def handle_user_prompt(self,
+                                 context: str,
+                                 accept: Optional[bool] = None,
+                                 user_text: Optional[str] = None):
+        """
+        Allows closing an open prompt.
+        :param context: The context of the prompt.
+        :param accept: Whether to accept or dismiss the prompt.
+        :param user_text: The text to input in the prompt.
+        """
+        pass
+
+
 class BidiEventsProtocolPart(ProtocolPart):
     """Protocol part for managing BiDi events"""
     __metaclass__ = ABCMeta
