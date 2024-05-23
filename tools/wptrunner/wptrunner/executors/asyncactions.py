@@ -1,5 +1,8 @@
 # mypy: allow-untyped-defs
 
+from webdriver.bidi.protocol import BidiWindow
+
+
 class BidiSessionSubscribeAction:
     name = "bidi.session.subscribe"
 

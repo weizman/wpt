@@ -43,7 +43,7 @@ from .protocol import (BaseProtocolPart,
                        DevicePostureProtocolPart,
                        merge_dicts)
 
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from webdriver.client import Session
 from webdriver import error as webdriver_error
 from webdriver.bidi import error as webdriver_bidi_error
