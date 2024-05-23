@@ -800,7 +800,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
                 else:
                     protocol.testdriver.send_message(-1, "event", method, json.dumps({
                         "params": params,
-                        "method": method}), test_window=test_window)
+                        "method": method}))
 
             protocol.bidi_events.add_event_listener(None, process_bidi_event)
             protocol.loop.run_until_complete(protocol.bidi_events.subscribe(['browsingContext.userPromptOpened'], None))
