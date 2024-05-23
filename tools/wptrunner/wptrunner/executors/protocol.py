@@ -384,10 +384,10 @@ class BidiScriptProtocolPart(ProtocolPart):
 
     @abstractmethod
     async def call_function(
-          self,
-          function_declaration: str,
-          target: Target,
-          arguments: Optional[List[Mapping[str, Any]]] = None
+            self,
+            function_declaration: str,
+            target: Target,
+            arguments: Optional[List[Mapping[str, Any]]] = None
     ) -> Mapping[str, Any]:
         """
         Executes the provided script in the given target in asynchronous mode.
