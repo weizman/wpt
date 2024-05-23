@@ -786,21 +786,26 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         if hasattr(protocol, 'bidi_events'):
             # If protocol implements `bidi_events`, forward all the events to test_driver.
             async def process_bidi_event(method, params):
-                self.logger.debug(f"Received bidi event: {method}, {params}")
-                if hasattr(protocol, 'bidi_browsing_context') and method == "browsingContext.userPromptOpened":
-                    # User prompts are handled separately. In classic implementation, the user prompt always causes an
-                    # exception when `_get_next_message` is called. In BiDi it's not a case, as the BiDi protocol allows
-                    # sending commands even with the user prompt opened. However, the user prompt can block the
-                    # testdriver JS execution and cause the dead loop. To overcome this issue, the user prompt is always
-                    # dismissed.
-                    # TODO: find out a way of handling the user prompts by testdriver.
-                    self.logger.error("Unexpected user prompt opened: %s" % params)
-                    unexpected_exceptions.append(Exception("Unexpected user prompt opened: %s" % params))
-                    await protocol.bidi_browsing_context.handle_user_prompt(params["context"])
-                else:
-                    protocol.testdriver.send_message(-1, "event", method, json.dumps({
-                        "params": params,
-                        "method": method}))
+                try:
+                    self.logger.debug(f"Received bidi event: {method}, {params}")
+                    if hasattr(protocol, 'bidi_browsing_context') and method == "browsingContext.userPromptOpened" and \
+                            params["context"] == test_window:
+                        # User prompts of the test window are handled separately. In classic implementation, this user
+                        # prompt always causes an exception when `_get_next_message` is called. In BiDi it's not a case,
+                        # as the BiDi protocol allows sending commands even with the user prompt opened. However, the
+                        # user prompt can block the testdriver JS execution and cause the dead loop. To overcome this
+                        # issue, the user prompt of the test window is always dismissed and the test is failing.
+                        await protocol.bidi_browsing_context.handle_user_prompt(params["context"])
+                        raise Exception("Unexpected user prompt in test window: %s" % params)
+                    else:
+                        protocol.testdriver.send_message(-1, "event", method, json.dumps({
+                            "params": params,
+                            "method": method}))
+                except Exception as e:
+                    # As the event listener is async, the exceptions should be added to the list to be processed in the
+                    # main loop.
+                    self.logger.error("BiDi event processing failed: %s" % e)
+                    unexpected_exceptions.append(e)
 
             protocol.bidi_events.add_event_listener(None, process_bidi_event)
             protocol.loop.run_until_complete(protocol.bidi_events.subscribe(['browsingContext.userPromptOpened'], None))
