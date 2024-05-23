@@ -10,13 +10,13 @@ class BidiValue(ABC):
     protocol_value: Dict[str, Any]
     type: str
 
-    def __init__(self, protocol_value):
+    def __init__(self, protocol_value: Dict[str, Any]):
         assert isinstance(protocol_value, dict)
         assert isinstance(protocol_value["type"], str)
         self.type = protocol_value["type"]
         self.protocol_value = protocol_value
 
-    def to_classic_protocol_value(self) -> Dict:
+    def to_classic_protocol_value(self) -> Dict[str, Any]:
         """Convert the BiDi value to the classic protocol value. Required for compatibility of the values sent over BiDi
         transport with the classic actions."""
         raise NotImplementedError("No conversion to the classic protocol value is implemented.")
@@ -30,7 +30,7 @@ class BidiNode(BidiValue):
         assert self.type == "node"
         self.shared_id = self.protocol_value["sharedId"]
 
-    def to_classic_protocol_value(self) -> Dict:
+    def to_classic_protocol_value(self) -> Dict[str, Any]:
         return {WebElement.identifier: self.shared_id}
 
 
@@ -43,7 +43,7 @@ class BidiWindow(BidiValue):
         self.browsing_context = self.protocol_value["value"]["context"]
 
 
-def bidi_deserialize(bidi_value: Union[str, int, Dict]):
+def bidi_deserialize(bidi_value: Union[str, int, Dict[str, Any]]) -> Any:
     """
     Deserialize the BiDi primitive values, lists and objects to the Python value, keeping non-common data types
     in BiDi format.
@@ -82,15 +82,15 @@ def bidi_deserialize(bidi_value: Union[str, int, Dict]):
         return int(bidi_value["value"])
     # script.RemoteValue https://w3c.github.io/webdriver-bidi/#type-script-RemoteValue
     if bidi_value["type"] == "array":
-        result = []
+        list_result = []
         for item in bidi_value["value"]:
-            result.append(bidi_deserialize(item))
-        return result
+            list_result.append(bidi_deserialize(item))
+        return list_result
     if bidi_value["type"] == "object":
-        result = {}
+        dict_result = {}
         for item in bidi_value["value"]:
-            result[bidi_deserialize(item[0])] = bidi_deserialize(item[1])
-        return result
+            dict_result[bidi_deserialize(item[0])] = bidi_deserialize(item[1])
+        return dict_result
     if bidi_value["type"] == "node":
         return BidiNode(bidi_value)
     if bidi_value["type"] == "window":

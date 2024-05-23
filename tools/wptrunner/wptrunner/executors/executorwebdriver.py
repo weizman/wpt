@@ -43,7 +43,7 @@ from .protocol import (BaseProtocolPart,
                        DevicePostureProtocolPart,
                        merge_dicts)
 
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 from webdriver.client import Session
 from webdriver import error as webdriver_error
 from webdriver.bidi import error as webdriver_bidi_error
@@ -125,13 +125,13 @@ class WebDriverBidiBrowsingContextProtocolPart(BidiBrowsingContextProtocolPart):
     async def handle_user_prompt(self,
                                  context: str,
                                  accept: Optional[bool] = None,
-                                 user_text: Optional[str] = None):
+                                 user_text: Optional[str] = None) -> None:
         await self.webdriver.bidi_session.browsing_context.handle_user_prompt(
             context=context, accept=accept, user_text=user_text)
 
 
 class WebDriverBidiEventsProtocolPart(BidiEventsProtocolPart):
-    _subscriptions = []
+    _subscriptions: List[Tuple[List[str], Optional[List[str]]]] = []
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -711,7 +711,7 @@ class WebDriverRun(TimedRunner):
 class WebDriverTestharnessExecutor(TestharnessExecutor):
     supports_testdriver = True
     protocol_cls = WebDriverProtocol
-    _get_next_message: Callable[[WebDriverProtocol, str, str], Dict]
+    _get_next_message = None
 
     def __init__(self, logger, browser, server_config, timeout_multiplier=1,
                  close_after_done=True, capabilities=None, debug_info=None,
@@ -864,7 +864,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
 
         return rv
 
-    def _get_next_message_classic(self, protocol: WebDriverProtocol, url: str, _: str):
+    def _get_next_message_classic(self, protocol, url, _):
         """
         Get the next message from the test_driver using the classic WebDriver async script execution. This will block
         the event loop until the test_driver send a message.
@@ -872,7 +872,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         """
         return protocol.base.execute_script(self.script_resume, asynchronous=True, args=[strip_server(url)])
 
-    def _get_next_message_bidi(self, protocol: WebDriverProtocol, url: str, test_window: str):
+    def _get_next_message_bidi(self, protocol, url, test_window):
         """
         Get the next message from the test_driver using async call. This will not block the event loop, which allows for
         processing the events from the test_runner to test_driver while waiting for the next test_driver commands.

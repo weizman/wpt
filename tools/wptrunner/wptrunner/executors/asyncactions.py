@@ -1,45 +1,26 @@
-from typing import List, Optional, TypedDict, Union
-from webdriver.bidi.protocol import BidiWindow
-
-
-class BrowsingContextArgument(str):
-    """Represent a browsing context argument passed from testdriver. It can be either a browsing context id, or a BiDi
-    serialized window. In the latter case, the value is extracted from the serialized object."""
-
-    def __new__(cls, context: Union[str, BidiWindow]):
-        if isinstance(context, str):
-            _context_id = context
-        elif isinstance(context, BidiWindow):
-            _context_id = context.browsing_context
-        else:
-            raise ValueError("Unexpected context type: %s" % context)
-        return super(BrowsingContextArgument, cls).__new__(cls, _context_id)
-
+# mypy: allow-untyped-defs
 
 class BidiSessionSubscribeAction:
     name = "bidi.session.subscribe"
-
-    class Payload(TypedDict):
-        """
-        Payload for the "bidi.session.subscribe" action.
-        events: List of event names to subscribe to.
-        contexts: Optional list of browsing contexts to subscribe to. Each context can be either a BiDi serialized
-        value, or a string. The latter is considered as a browsing context id.
-        """
-        events: List[str]
-        contexts: Optional[List[BrowsingContextArgument]]
 
     def __init__(self, logger, protocol):
         self.logger = logger
         self.protocol = protocol
 
-    async def __call__(self, payload: Payload):
+    async def __call__(self, payload):
         events = payload["events"]
         contexts = None
         if payload["contexts"] is not None:
             contexts = []
-            for browsing_context_argument in payload["contexts"]:
-                contexts.append(BrowsingContextArgument(browsing_context_argument))
+            for context in payload["contexts"]:
+                # Context can be either a browsing context id, or a BiDi serialized window. In the latter case, the
+                # value is extracted from the serialized object.
+                if isinstance(context, str):
+                    contexts.append(context)
+                elif isinstance(context, BidiWindow):
+                    contexts.append(context.browsing_context)
+                else:
+                    raise ValueError("Unexpected context type: %s" % context)
         return await self.protocol.bidi_events.subscribe(events, contexts)
 
 

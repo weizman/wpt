@@ -205,7 +205,7 @@ class TestharnessProtocolPart(ProtocolPart):
         pass
 
     @abstractmethod
-    def get_test_window(self, window_id, parent) -> str:
+    def get_test_window(self, window_id: str, parent: str) -> str:
         """Get the window handle dorresponding to the window containing the
         currently active test.
 
@@ -331,7 +331,7 @@ class BidiBrowsingContextProtocolPart(ProtocolPart):
     async def handle_user_prompt(self,
                                  context: str,
                                  accept: Optional[bool] = None,
-                                 user_text: Optional[str] = None):
+                                 user_text: Optional[str] = None) -> None:
         """
         Allows closing an open prompt.
         :param context: The context of the prompt.
@@ -354,7 +354,6 @@ class BidiEventsProtocolPart(ProtocolPart):
         Subscribes to the given events in the given contexts.
         :param events: The events to subscribe to.
         :param contexts: The contexts to subscribe to. If None, the function will subscribe to all contexts.
-        :return:
         """
         pass
 
@@ -385,11 +384,11 @@ class BidiScriptProtocolPart(ProtocolPart):
 
     @abstractmethod
     async def call_function(
-            self,
-            function_declaration: str,
-            target: Target,
-            arguments: Optional[List[Mapping[str, Any]]] = None
-    ):
+          self,
+          function_declaration: str,
+          target: Target,
+          arguments: Optional[List[Mapping[str, Any]]] = None
+    ) -> Mapping[str, Any]:
         """
         Executes the provided script in the given target in asynchronous mode.
 
