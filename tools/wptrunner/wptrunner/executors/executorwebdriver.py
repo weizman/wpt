@@ -172,7 +172,7 @@ class WebDriverBidiEventsProtocolPart(BidiEventsProtocolPart):
         self.logger.info("Subscribing to events %s in %s" % (events, contexts))
         # The BiDi subscriptions are done for top context even if the sub-context is provided. We need to get the
         # top-level contexts list to handle the scenario when subscription is done for a sub-context which is closed
-        # afterwords. However, the subscription itself is done for the provided contexts in order to throw in case of
+        # afterwards. However, the subscription itself is done for the provided contexts in order to throw in case of
         # the sub-context is removed.
         top_contexts = await self._contexts_to_top_contexts(contexts)
         result = await self.webdriver.bidi_session.session.subscribe(events=events, contexts=contexts)
