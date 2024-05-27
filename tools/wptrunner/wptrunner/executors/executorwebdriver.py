@@ -759,8 +759,6 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         return (test.make_result(*data), [])
 
     def do_testharness(self, protocol, url, timeout):
-        # TODO: respect timeout.
-
         # The previous test may not have closed its old windows (if something
         # went wrong or if cleanup_after_test was False), so clean up here.
         parent_window = protocol.testharness.close_old_windows()
