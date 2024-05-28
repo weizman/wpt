@@ -14,6 +14,7 @@
         // required before. The cleanup is done automatically after the test is finished.
         const log_entry_promise = new Promise(resolve => test_driver.bidi.log.entry_added.on(resolve));
         // Emit a console.log message.
+        // Note: Lint rule is disabled in `lint.ignore` file.
         console.log(some_message)
         // Wait for the log.entryAdded event to be received.
         const event = await log_entry_promise;
