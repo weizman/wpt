@@ -4,6 +4,7 @@ import json
 
 import webdriver
 
+
 """WebDriver wire protocol codecs."""
 
 

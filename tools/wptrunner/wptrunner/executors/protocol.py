@@ -20,7 +20,6 @@ def merge_dicts(target, source):
             else:
                 target[key] = source_value
 
-
 class Protocol:
     """Backend for a specific browser-control protocol.
 
